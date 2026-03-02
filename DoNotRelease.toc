@@ -2,7 +2,7 @@
 ## Version: 1.0.0
 ## Title: DoNotRelease
 ## Note: Yet another addon
-## Author: jg
+## Author: Jeremy-Gstein
 ## IconTexture: Interface\Icons\spell_shadow_soulleech_3
 ## SavedVariables: DoNotReleaseDB
 
