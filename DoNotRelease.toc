@@ -1,0 +1,11 @@
+## Interface: 120000, 120001
+## Version: 1.0.0
+## Title: DoNotRelease
+## Note: Yet another addon
+## Author: jg
+## IconTexture: Interface\Icons\spell_shadow_soulleech_3
+## SavedVariables: DoNotReleaseDB
+
+Locale\enUS.lua
+
+DoNotRelease.lua
