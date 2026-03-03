@@ -3,7 +3,7 @@
 ## Title: DoNotRelease
 ## Note: Yet another addon
 ## Author: Jeremy-Gstein
-## IconTexture: Interface\Icons\spell_shadow_soulleech_3
+## IconTexture: Interface\Icons\spell_holy_guardianspirit
 ## SavedVariables: DoNotReleaseDB
 
 Locale\enUS.lua
