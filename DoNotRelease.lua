@@ -37,11 +37,27 @@ local L = DoNotReleaseL
 -- DoNotReleaseDB is declared in the .toc as a SavedVariables entry.
 -- We initialise it in ADDON_LOADED so the SV system has already populated it.
 local DB_DEFAULTS = {
-    posX   = 0,
-    posY   = 120,
-    colorR = 1,
-    colorG = 0.1,
-    colorB = 0.1,
+    posX        = 0,
+    posY        = 120,
+    colorR      = 1,
+    colorG      = 0.1,
+    colorB      = 0.1,
+    warningText = "PLEASE DO NOT RELEASE",
+    fontSize    = 64,
+    fontFace    = "Fonts\\FRIZQT__.TTF",
+}
+
+local MAX_TEXT_LEN  = 32   -- characters; keeps large text inside the 800px frame
+local FONT_SIZE_MIN = 32
+local FONT_SIZE_MAX = 96
+
+-- Font presets — WoW's built-in fonts, each labelled and previewed in its own face.
+local FONT_PRESETS = {
+    { label = "Default",  file = "Fonts\\FRIZQT__.TTF"  },
+    { label = "Clean",    file = "Fonts\\ARIALN.TTF"    },
+    { label = "Fancy",    file = "Fonts\\MORPHEUS.TTF"  },
+    { label = "Runic",    file = "Fonts\\SKURRI.TTF"    },
+    { label = "Bold",     file = "Fonts\\UNIT.TTF"      },
 }
 
 -- Colour presets referenced by the config panel.
@@ -136,6 +152,25 @@ local function ApplySavedColor()
     label:SetTextColor(DoNotReleaseDB.colorR, DoNotReleaseDB.colorG, DoNotReleaseDB.colorB, 1)
 end
 
+--- Apply the saved warning text from DoNotReleaseDB to the label.
+local function ApplySavedText()
+    if not DoNotReleaseDB then return end
+    local t = DoNotReleaseDB.warningText
+    if t and t ~= "" then
+        label:SetText(t)
+    else
+        label:SetText(DB_DEFAULTS.warningText)
+    end
+end
+
+--- Apply the saved font face and size from DoNotReleaseDB to the label.
+local function ApplySavedFont()
+    if not DoNotReleaseDB then return end
+    local face = DoNotReleaseDB.fontFace or DB_DEFAULTS.fontFace
+    local size = DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize
+    label:SetFont(face, size, "OUTLINE")
+end
+
 --- Persist DNR's current screen position into DoNotReleaseDB.
 -- After WoW's drag system moves a frame it stores absolute coords internally.
 -- We read those back as a CENTER offset from UIParent so they survive resolution changes.
@@ -191,8 +226,8 @@ end
 local function BuildConfigPanel()
     if configFrame then return end
 
-    -- Panel is 300 wide × 330 tall — big enough for all rows with room to spare.
-    local W, H = 300, 330
+    -- Panel is 300 wide × 600 tall — big enough for all rows with room to spare.
+    local W, H = 300, 600
     local PAD  = 20   -- left/right padding inside the panel
     local BTN_H = 26  -- standard button height
     local y = -40     -- cursor: offset from TOPLEFT, advances downward (negative)
@@ -303,6 +338,57 @@ local function BuildConfigPanel()
     local colorRows = math.ceil(#COLOR_PRESETS / 2)
     addGap(colorRows * (BTN_H + 4) + 14)
 
+    -- ── Section: Warning Text ─────────────────────────────────────────────────
+    local textHeader = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    place(textHeader, PAD)
+    textHeader:SetText("|cFFFFD700" .. (L["CONFIG_TEXT_TITLE"] or "Warning Text") .. "|r")
+    addGap(20)
+
+    -- EditBox — full width, InputBoxTemplate gives the standard WoW inset border
+    local editBox = CreateFrame("EditBox", "DoNotReleaseTextInput", configFrame, "InputBoxTemplate")
+    editBox:SetPoint("TOPLEFT", configFrame, "TOPLEFT", PAD + 6, y)
+    editBox:SetWidth(W - PAD * 2 - 12)
+    editBox:SetHeight(BTN_H)
+    editBox:SetMaxLetters(MAX_TEXT_LEN)
+    editBox:SetAutoFocus(false)
+    editBox:SetText(DoNotReleaseDB and DoNotReleaseDB.warningText or DB_DEFAULTS.warningText)
+    editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    addGap(BTN_H + 6)
+
+    -- Char counter label — sits just below the edit box, right-aligned
+    local charCount = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    charCount:SetPoint("TOPLEFT", configFrame, "TOPLEFT", PAD + 6, y)
+    charCount:SetTextColor(0.7, 0.7, 0.7, 1)
+    local function updateCounter()
+        local cur = utf8len and utf8len(editBox:GetText()) or #editBox:GetText()
+        charCount:SetText(cur .. " / " .. MAX_TEXT_LEN)
+    end
+    updateCounter()
+    editBox:SetScript("OnTextChanged", function() updateCounter() end)
+    addGap(18)
+
+    -- Refresh text field whenever the panel is shown (DB may have loaded after build)
+    -- Defined here so updateCounter is already in scope.
+    local origOnShow = configFrame:GetScript("OnShow")
+    configFrame:SetScript("OnShow", function(self)
+        if origOnShow then origOnShow(self) end
+        editBox:SetText(DoNotReleaseDB and DoNotReleaseDB.warningText or DB_DEFAULTS.warningText)
+        updateCounter()
+    end)
+
+    -- "Set" and "Reset" buttons side by side
+    local HALF_W = math.floor((W - PAD * 2 - 8) / 2)
+    local setBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
+    setBtn:SetSize(HALF_W, BTN_H)
+    setBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", PAD, y)
+    setBtn:SetText(L["CONFIG_TEXT_SET"] or "Set")
+
+    local resetTextBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
+    resetTextBtn:SetSize(HALF_W, BTN_H)
+    resetTextBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", PAD + HALF_W + 8, y)
+    resetTextBtn:SetText(L["CONFIG_TEXT_RESET"] or "Reset Text")
+    addGap(BTN_H + 14)
+
     -- ── Close button — centred at bottom ──────────────────────────────────────
     local closeBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
     closeBtn:SetSize(100, BTN_H)
@@ -330,6 +416,117 @@ local function BuildConfigPanel()
         print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_POS_RESET_MSG"] or "Position reset to default."))
     end)
+
+    setBtn:SetScript("OnClick", function()
+        if not DoNotReleaseDB then return end
+        local raw = strtrim(editBox:GetText())
+        if raw == "" then
+            print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r Text cannot be empty.")
+            return
+        end
+        DoNotReleaseDB.warningText = raw
+        label:SetText(raw)
+        editBox:ClearFocus()
+        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+            .. (L["CONFIG_SAVED"] or "Settings saved."))
+    end)
+
+    resetTextBtn:SetScript("OnClick", function()
+        if not DoNotReleaseDB then return end
+        DoNotReleaseDB.warningText = DB_DEFAULTS.warningText
+        label:SetText(DB_DEFAULTS.warningText)
+        editBox:SetText(DB_DEFAULTS.warningText)
+        updateCounter()
+        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+            .. (L["CONFIG_TEXT_RESET_MSG"] or "Warning text reset to default."))
+    end)
+
+    -- ── Section: Font Size ────────────────────────────────────────────────────
+    local sizeHeader = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    place(sizeHeader, PAD)
+    sizeHeader:SetText("|cFFFFD700" .. (L["CONFIG_SIZE_TITLE"] or "Font Size") .. "|r")
+    addGap(20)
+
+    -- OptionsSliderTemplate gives us a ready-made WoW-styled slider with tick marks.
+    local sizeSlider = CreateFrame("Slider", "DoNotReleaseSizeSlider", configFrame, "OptionsSliderTemplate")
+    sizeSlider:SetPoint("TOPLEFT", configFrame, "TOPLEFT", PAD + 8, y)
+    sizeSlider:SetWidth(W - PAD * 2 - 16)
+    sizeSlider:SetMinMaxValues(FONT_SIZE_MIN, FONT_SIZE_MAX)
+    sizeSlider:SetValueStep(2)
+    sizeSlider:SetObeyStepOnDrag(true)
+    sizeSlider:SetValue(DoNotReleaseDB and DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize)
+
+    -- The template creates these FontStrings automatically; we just set their text.
+    DoNotReleaseSizeSliderLow:SetText(FONT_SIZE_MIN .. "pt")
+    DoNotReleaseSizeSliderHigh:SetText(FONT_SIZE_MAX .. "pt")
+
+    -- Value readout sits above the slider centre
+    local sizeValue = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sizeValue:SetPoint("BOTTOM", sizeSlider, "TOP", 0, 2)
+    local function refreshSizeLabel(v)
+        sizeValue:SetText(math.floor(v + 0.5) .. "pt")
+    end
+    refreshSizeLabel(sizeSlider:GetValue())
+
+    sizeSlider:SetScript("OnValueChanged", function(self, val)
+        if not DoNotReleaseDB then return end
+        local size = math.floor(val + 0.5)
+        DoNotReleaseDB.fontSize = size
+        local face = DoNotReleaseDB.fontFace or DB_DEFAULTS.fontFace
+        label:SetFont(face, size, "OUTLINE")
+        refreshSizeLabel(size)
+    end)
+    addGap(48)   -- slider widget is taller than a button
+
+    -- Refresh slider when panel opens (in case DB wasn't ready at build time)
+    local prevOnShow = configFrame:GetScript("OnShow")
+    configFrame:SetScript("OnShow", function(self)
+        if prevOnShow then prevOnShow(self) end
+        local sz = DoNotReleaseDB and DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize
+        sizeSlider:SetValue(sz)
+        refreshSizeLabel(sz)
+    end)
+
+    -- ── Section: Font Face ────────────────────────────────────────────────────
+    local faceHeader = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    place(faceHeader, PAD)
+    faceHeader:SetText("|cFFFFD700" .. (L["CONFIG_FONT_TITLE"] or "Font") .. "|r")
+    addGap(20)
+
+    local COL_W2 = math.floor((W - PAD * 2 - 8) / 2)
+    for i, preset in ipairs(FONT_PRESETS) do
+        local col = (i - 1) % 2
+        local row = math.floor((i - 1) / 2)
+
+        local fb = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
+        fb:SetSize(COL_W2, BTN_H)
+        fb:SetPoint("TOPLEFT", configFrame, "TOPLEFT",
+            PAD + col * (COL_W2 + 8),
+            y - row * (BTN_H + 4))
+        fb:SetText(preset.label)
+
+        -- Preview each button's label in its own font at a readable size
+        local function styleFontBtn()
+            local fs = fb:GetFontString()
+            if fs then fs:SetFont(preset.file, 13, "OUTLINE") end
+        end
+        styleFontBtn()
+        fb:SetScript("OnShow",   styleFontBtn)
+        fb:SetScript("OnEnable", styleFontBtn)
+
+        local fFile = preset.file
+        fb:SetScript("OnClick", function()
+            if not DoNotReleaseDB then return end
+            DoNotReleaseDB.fontFace = fFile
+            local size = DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize
+            label:SetFont(fFile, size, "OUTLINE")
+            print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+                .. (L["CONFIG_SAVED"] or "Settings saved."))
+        end)
+    end
+
+    local faceRows = math.ceil(#FONT_PRESETS / 2)
+    addGap(faceRows * (BTN_H + 4) + 14)
 
     configFrame:SetScript("OnHide", function()
         DisableDNRDrag()
@@ -365,6 +562,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         end
         ApplySavedPosition()
         ApplySavedColor()
+        ApplySavedText()
+        ApplySavedFont()
 
     elseif event == "PLAYER_DEAD" then
         C_Timer.After(0.3, ShowWarning)
