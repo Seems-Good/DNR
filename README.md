@@ -1,7 +1,7 @@
 # DNR (DoNotRelease)
 Simple reminder addon to not release on death.
 
-<img width="819" height="417" alt="image" src="https://github.com/user-attachments/assets/a04a398e-820d-4378-bbbd-4b1c0efb415b" />
+<img width="687" height="161" alt="image" src="https://github.com/user-attachments/assets/775eef63-fa3d-4d3a-9920-3e13fb1e9464" />
 
 **Features:**
 - After dying in a instance group display in large text "DO NOT RELEASE" (Default, change later!)
@@ -14,4 +14,6 @@ Simple reminder addon to not release on death.
 - `/dnr test` - Display the text outside of death (testing)
 - `/dnr hide` - Hide the text on screen after using `/dnr test`
 
-made with :heart: in Vim
+---
+
+<sub> made with :heart: in Vim </sub>
