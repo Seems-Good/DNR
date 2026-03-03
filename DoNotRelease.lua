@@ -106,6 +106,8 @@ label:SetText(L["WARNING_TEXT"] or "PLEASE DO NOT RELEASE")
 -- math.sin / math.pi are localized to avoid global table lookups every frame.
 local _sin         = math.sin
 local _pi2         = math.pi * 2
+local _floor       = math.floor
+local _ceil        = math.ceil
 local PULSE_PERIOD = 1.5
 local ALPHA_MIN    = 0.35
 local ALPHA_MAX    = 1.00
@@ -223,7 +225,6 @@ local function BuildSettingsCanvas()
     local canvas = CreateFrame("Frame", nil, scrollFrame)
     canvas:SetSize(W - 30, 800)
     scrollFrame:SetScrollChild(canvas)
-    scrollFrame:SetScrollChild(canvas)
 
     local function place(widget, xOff, width, height)
         widget:ClearAllPoints()
@@ -295,13 +296,9 @@ local function BuildSettingsCanvas()
         pb:SetText(L[preset.key] or preset.key)
 
         local r, g, b = preset.r, preset.g, preset.b
-        local function tintBtn()
-            local fs = pb:GetFontString()
-            if fs then fs:SetTextColor(r, g, b, 1) end
-        end
-        tintBtn()
-        pb:SetScript("OnShow",   tintBtn)
-        pb:SetScript("OnEnable", tintBtn)
+        -- Set color once at creation — same pattern as font buttons.
+        local pfs = pb:GetFontString()
+        if pfs then pfs:SetTextColor(r, g, b, 1) end
         pb:SetScript("OnClick", function()
             if not DoNotReleaseDB then return end
             DoNotReleaseDB.colorR, DoNotReleaseDB.colorG, DoNotReleaseDB.colorB = r, g, b
@@ -311,7 +308,7 @@ local function BuildSettingsCanvas()
         end)
     end
 
-    addGap(math.ceil(#COLOR_PRESETS / 2) * (BTN_H + 4) + 18)  -- color rows
+    addGap(_ceil(#COLOR_PRESETS / 2) * (BTN_H + 4) + 18)  -- color rows
     divider()
 
     -- ── Warning Text ──────────────────────────────────────────────────────────
@@ -368,13 +365,13 @@ local function BuildSettingsCanvas()
     sizeValue:SetPoint("BOTTOM", sizeSlider, "TOP", 0, 4)
 
     local function refreshSizeLabel(v)
-        sizeValue:SetText(math.floor(v + 0.5) .. "pt")
+        sizeValue:SetText(_floor(v + 0.5) .. "pt")
     end
     refreshSizeLabel(sizeSlider:GetValue())
 
     sizeSlider:SetScript("OnValueChanged", function(self, val)
         if not DoNotReleaseDB then return end
-        local size = math.floor(val + 0.5)
+        local size = _floor(val + 0.5)
         DoNotReleaseDB.fontSize = size
         label:SetFont(DoNotReleaseDB.fontFace or DB_DEFAULTS.fontFace, size, "OUTLINE")
         refreshSizeLabel(size)
@@ -410,7 +407,7 @@ local function BuildSettingsCanvas()
         end)
     end
 
-    addGap(math.ceil(#FONT_PRESETS / 2) * (BTN_H + 4) + 16)
+    addGap(_ceil(#FONT_PRESETS / 2) * (BTN_H + 4) + 16)
     -- ── Footer ────────────────────────────────────────────────────────────────
     local function fline(text, indent)
         local fs = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -432,11 +429,12 @@ local function BuildSettingsCanvas()
     fline("|cFFFFD700SilvermoonStimming|r \226\128\148 Lap tracker  |cFF4DA6FF[Jeremy-Gstein/SilvermoonStimming]|r", 8)
     fline("|cFFFFD700DjLust|r \226\128\148 Bloodlust animations  |cFF4DA6FF[Jeremy-Gstein/DjLust]|r", 8)
     fline("|cFFFFD700C-Inspect|r \226\128\148 Ctrl+Click to inspect gear  |cFF4DA6FF[Jeremy-Gstein/C-Inspect]|r", 8)
+    fline("|cFFFFD700Talent Trends|r \226\128\148 Top parsing talents  |cFF4DA6FF[talents.seemsgood.org]|r", 8)
     addGap(4)
 
-    fline(L["FOOTER_SUPPORT"] or "Like these projects? Share feedback or donate <3 \226\157\164")
+    fline(L["FOOTER_SUPPORT"] or "Like these projects? Share feedback or donate \226\157\164")
     fline("|cFFFF6644Ko-fi:|r |cFF4DA6FFko-fi.com/j51b5|r"
-        .. "    |cFFFF6644Web:|r |cFF4DA6FFseemsgood.org|r"
+        .. "    |cFFFF6644Web:|r |cFF4DA6FFseemsGood.org|r"
         .. "    |cFFFF6644Email:|r |cFF4DA6FFjeremy51b5@pm.me|r")
     addGap(10)
 
