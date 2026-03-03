@@ -22,6 +22,28 @@
 --  Localization notes:
 --    * All user-facing strings live in DoNotReleaseL (see Locale/).
 --    * Locale files are loaded first via the .toc.
+--
+--  Performance fixes (v1.0.1):
+--    [FIX-1] pulseTime now wraps via % PULSE_PERIOD to prevent
+--            float precision loss over long sessions.
+--    [FIX-2] /dnr test auto-hides after TEST_DURATION seconds
+--            (unless the player is genuinely dead in an instance)
+--            so the OnUpdate loop can't be left running forever.
+--    [FIX-3] GROUP_ROSTER_UPDATE is debounced: the event fires in
+--            rapid bursts on roster changes; a 0.25 s C_Timer.After
+--            collapses each burst into a single ShouldWarn() check.
+--    [FIX-4] sizeSlider OnValueChanged now guards with a dirty-check
+--            (val ~= last) so dragging doesn't call SetFont every
+--            frame while the thumb is stationary between steps.
+--    [FIX-5] onUpdate now self-terminates: on every frame it checks
+--            ShouldWarn() and calls HideWarning() if conditions are no
+--            longer met. Previously onUpdate ran blind until an external
+--            event (PLAYER_ALIVE, PLAYER_UNGHOST, SettingsPanel:OnHide)
+--            called HideWarning() — if those events didn't fire the loop
+--            ran forever, causing constant CPU draw. A previewMode flag
+--            exempts intentional shows (settings buttons, /dnr test).
+--            PLAYER_ENTERING_WORLD is also deferred by 0.5 s to avoid
+--            acting on a transient UnitIsDead() state after a load screen.
 -- ============================================================
 
 -- ── Locale shorthand ─────────────────────────────────────────────────────────
@@ -43,6 +65,10 @@ local DB_DEFAULTS = {
 local MAX_TEXT_LEN  = 32
 local FONT_SIZE_MIN = 32
 local FONT_SIZE_MAX = 96
+
+-- [FIX-2] How long (seconds) the test preview stays visible before
+-- auto-hiding. Only hides if the player isn't genuinely dead in an instance.
+local TEST_DURATION = 10
 
 local FONT_PRESETS = {
     { key = "FONT_DEFAULT", file = "Fonts\\FRIZQT__.TTF" },
@@ -115,9 +141,28 @@ local ALPHA_MID    = (ALPHA_MAX + ALPHA_MIN) / 2
 local ALPHA_AMP    = (ALPHA_MAX - ALPHA_MIN) / 2
 local PHASE_OFFSET = math.pi / 2
 local pulseTime    = 0
+-- [FIX-5] True while DNR is intentionally shown for a preview (settings
+-- Show/Drag buttons, /dnr test). Keeps onUpdate from immediately self-hiding
+-- those cases. Cleared by HideWarning() and by ShowWarning() (which checks
+-- ShouldWarn() before showing, so a real-warning show doesn't need the flag).
+local previewMode  = false
 
 local function onUpdate(self, elapsed)
-    pulseTime = pulseTime + elapsed
+    -- [FIX-5] Self-termination guard: if the warning conditions are no longer
+    -- met and this isn't an intentional preview, hide immediately.
+    -- This is the root-cause fix: onUpdate previously ran blind once started,
+    -- relying entirely on external events (PLAYER_ALIVE, PLAYER_UNGHOST,
+    -- SettingsPanel:OnHide) to call HideWarning(). If those events didn't
+    -- fire — e.g. because PLAYER_ENTERING_WORLD triggered a false-positive
+    -- ShouldWarn() due to a transient UnitIsDead() state on login — the loop
+    -- ran forever. Now it self-corrects on the very next frame.
+    if not previewMode and not ShouldWarn() then
+        HideWarning()
+        return
+    end
+    -- [FIX-1] Wrap pulseTime to [0, PULSE_PERIOD) so it never grows into
+    -- large float territory, which would silently degrade sin() precision.
+    pulseTime = (pulseTime + elapsed) % PULSE_PERIOD
     self:SetAlpha(ALPHA_MID + ALPHA_AMP * _sin(
         pulseTime * _pi2 / PULSE_PERIOD + PHASE_OFFSET))
 end
@@ -128,7 +173,7 @@ DNR:SetScript("OnShow", function(self)
 end)
 
 DNR:SetScript("OnHide", function(self)
-    self:SetScript("OnUpdate", nil)
+    self:SetScript("OnUpdate", nil)  -- [KEY] stops all per-frame work immediately
     self:SetAlpha(1)
 end)
 
@@ -175,6 +220,7 @@ local function ShowWarning()
 end
 
 local function HideWarning()
+    previewMode = false   -- always clear; safe to call even when not in preview
     DNR:Hide()
 end
 
@@ -217,6 +263,15 @@ local function BuildSettingsCanvas()
     -- Outer frame that WoW hands to the Settings API
     local outer = CreateFrame("Frame")
     outer:SetSize(W, 600)
+    -- [FIX-6] Hide the canvas immediately after creation.
+    -- WoW frames are visible by default. The scrollbar inside
+    -- UIPanelScrollFrameTemplate runs ScrollFrame_OnUpdate every single
+    -- frame while any ancestor is visible. Without this line, that script
+    -- fired from ADDON_LOADED until the user first opened AND closed the
+    -- settings panel (when WoW's Settings API finally hid the canvas itself).
+    -- That was the entire source of the constant idle CPU draw.
+    -- The Settings API calls Show()/Hide() on outer as the user navigates.
+    outer:Hide()
 
     local scrollFrame = CreateFrame("ScrollFrame", "DoNotReleaseScrollFrame", outer, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT",     outer, "TOPLEFT",      0,  0)
@@ -369,12 +424,18 @@ local function BuildSettingsCanvas()
     end
     refreshSizeLabel(sizeSlider:GetValue())
 
+    -- [FIX-4] Dirty-check: only call SetFont when the stepped size actually
+    -- changes. Without this, dragging fires SetFont on every rendered frame
+    -- even when the thumb hasn't moved to a new step.
+    local lastSliderSize = DoNotReleaseDB and DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize
     sizeSlider:SetScript("OnValueChanged", function(self, val)
         if not DoNotReleaseDB then return end
         local size = _floor(val + 0.5)
+        refreshSizeLabel(size)
+        if size == lastSliderSize then return end  -- [FIX-4] no-op if step unchanged
+        lastSliderSize = size
         DoNotReleaseDB.fontSize = size
         label:SetFont(DoNotReleaseDB.fontFace or DB_DEFAULTS.fontFace, size, "OUTLINE")
-        refreshSizeLabel(size)
     end)
     addGap(54)
     divider()
@@ -448,6 +509,7 @@ local function BuildSettingsCanvas()
         editBox:SetText(label:GetText() or DB_DEFAULTS.warningText)
         updateCounter()
         local sz = DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize
+        lastSliderSize = sz  -- keep dirty-check in sync when panel re-opens
         sizeSlider:SetValue(sz)
         refreshSizeLabel(sz)
     end)
@@ -464,6 +526,7 @@ local function BuildSettingsCanvas()
 
     -- ── Button callbacks ──────────────────────────────────────────────────────
     showBtn:SetScript("OnClick", function()
+        previewMode = true   -- intentional preview; onUpdate must not self-hide
         DNR:Show()
     end)
 
@@ -473,6 +536,7 @@ local function BuildSettingsCanvas()
     end)
 
     dragBtn:SetScript("OnClick", function()
+        previewMode = true   -- intentional preview; onUpdate must not self-hide
         DNR:Show()
         EnableDNRDrag()
         print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
@@ -543,6 +607,12 @@ end
 
 -- ── Event Handling ────────────────────────────────────────────────────────────
 
+-- [FIX-3] Debounce state for GROUP_ROSTER_UPDATE.
+-- The event fires multiple times per roster change (one per diff'd member).
+-- We coalesce the burst into a single deferred check instead of calling
+-- ShouldWarn() for every individual event fire.
+local rosterUpdatePending = false
+
 local eventFrame = CreateFrame("Frame", "DoNotReleaseEvents")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_DEAD")
@@ -576,16 +646,27 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         DisableDNRDrag()
 
     elseif event == "GROUP_ROSTER_UPDATE" then
-        if DNR:IsShown() and not ShouldWarn() then
-            HideWarning()
-        end
+        -- [FIX-3] Skip if a check is already queued for this burst.
+        if rosterUpdatePending then return end
+        rosterUpdatePending = true
+        C_Timer.After(0.25, function()
+            rosterUpdatePending = false
+            if DNR:IsShown() and not ShouldWarn() then
+                HideWarning()
+            end
+        end)
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        if ShouldWarn() then
-            ShowWarning()
-        else
-            HideWarning()
-        end
+        -- Always hide stale state immediately; the previous session is gone.
+        -- Then defer the ShouldWarn() check: UnitIsDead("player") can return
+        -- true transiently right after a loading screen even for a live player.
+        -- Without the defer, a false-positive here would call ShowWarning(),
+        -- start onUpdate, and — before FIX-5 — run it forever since no
+        -- PLAYER_ALIVE / PLAYER_UNGHOST ever comes to clean it up.
+        HideWarning()
+        C_Timer.After(0.5, function()
+            if ShouldWarn() then ShowWarning() end
+        end)
     end
 end)
 
@@ -595,9 +676,16 @@ SLASH_DONOTRELEASE1 = "/dnr"
 SlashCmdList["DONOTRELEASE"] = function(msg)
     local cmd = strtrim(msg):lower()
     if cmd == "test" then
+        previewMode = true   -- intentional preview; onUpdate must not self-hide
         DNR:Show()
         print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["SLASH_TEST_MSG"] or "Test mode \226\128\148 warning shown."))
+        -- [FIX-2] Auto-hide the test preview after TEST_DURATION seconds.
+        -- Skipped if the player is genuinely dead in an instance by then
+        -- (e.g. they typed /dnr test right before pulling and then died).
+        C_Timer.After(TEST_DURATION, function()
+            if not ShouldWarn() then HideWarning() end
+        end)
     elseif cmd == "hide" then
         HideWarning()
         print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
