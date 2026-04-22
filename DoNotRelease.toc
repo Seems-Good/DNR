@@ -1,5 +1,5 @@
-## Interface: 120000, 120001
-## Version: 1.0.0
+## Interface: 120000, 120001, 120005
+## Version: @project-version@
 ## Title: DoNotRelease
 ## Note: Simple reminder addon to not release on death. Customizable, Lightweight, and Optimized for all content
 ## Author: Jeremy-Gstein
@@ -11,5 +11,4 @@
 ## X-Curse-Project-ID: 1476252
 
 Locale\enUS.lua
-
 DoNotRelease.lua
