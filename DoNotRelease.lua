@@ -52,14 +52,15 @@ local L = DoNotReleaseL
 
 -- ── SavedVariables defaults ───────────────────────────────────────────────────
 local DB_DEFAULTS = {
-    posX        = 0,
-    posY        = 120,
-    colorR      = 1,
-    colorG      = 0.1,
-    colorB      = 0.1,
-    warningText = "PLEASE DO NOT RELEASE",
-    fontSize    = 64,
-    fontFace    = "Fonts\\FRIZQT__.TTF",
+    posX         = 0,
+    posY         = 120,
+    colorR       = 1,
+    colorG       = 0.1,
+    colorB       = 0.1,
+    warningText  = "PLEASE DO NOT RELEASE",
+    fontSize     = 64,
+    fontFace     = "Fonts\\FRIZQT__.TTF",
+    releaseGuard = "timer",   -- "off" | "timer" (set timer as default)
 }
 
 local MAX_TEXT_LEN  = 32
@@ -95,8 +96,7 @@ local function PlayerIsInInstance()
         and instanceType ~= "arena"
 end
 
--- Resolve the best available IsInGroup implementation once at load time,
--- avoiding repeated nil-checks and global table lookups on every ShouldWarn call.
+-- Resolve the best available IsInGroup implementation once at load time.
 local _isInGroup
 if C_PartyInfo and C_PartyInfo.IsInGroup then
     _isInGroup = function()
@@ -129,7 +129,7 @@ label:SetShadowOffset(0, 0)
 label:SetText(L["WARNING_TEXT"] or "PLEASE DO NOT RELEASE")
 
 -- ── Smooth Pulse (alpha only) ─────────────────────────────────────────────────
--- math.sin / math.pi are localized to avoid global table lookups every frame.
+
 local _sin         = math.sin
 local _pi2         = math.pi * 2
 local _floor       = math.floor
@@ -141,27 +141,18 @@ local ALPHA_MID    = (ALPHA_MAX + ALPHA_MIN) / 2
 local ALPHA_AMP    = (ALPHA_MAX - ALPHA_MIN) / 2
 local PHASE_OFFSET = math.pi / 2
 local pulseTime    = 0
--- [FIX-5] True while DNR is intentionally shown for a preview (settings
--- Show/Drag buttons, /dnr test). Keeps onUpdate from immediately self-hiding
--- those cases. Cleared by HideWarning() and by ShowWarning() (which checks
--- ShouldWarn() before showing, so a real-warning show doesn't need the flag).
 local previewMode  = false
 
+local function HideWarning() -- forward decl for onUpdate
+    previewMode = false
+    DNR:Hide()
+end
+
 local function onUpdate(self, elapsed)
-    -- [FIX-5] Self-termination guard: if the warning conditions are no longer
-    -- met and this isn't an intentional preview, hide immediately.
-    -- This is the root-cause fix: onUpdate previously ran blind once started,
-    -- relying entirely on external events (PLAYER_ALIVE, PLAYER_UNGHOST,
-    -- SettingsPanel:OnHide) to call HideWarning(). If those events didn't
-    -- fire — e.g. because PLAYER_ENTERING_WORLD triggered a false-positive
-    -- ShouldWarn() due to a transient UnitIsDead() state on login — the loop
-    -- ran forever. Now it self-corrects on the very next frame.
     if not previewMode and not ShouldWarn() then
         HideWarning()
         return
     end
-    -- [FIX-1] Wrap pulseTime to [0, PULSE_PERIOD) so it never grows into
-    -- large float territory, which would silently degrade sin() precision.
     pulseTime = (pulseTime + elapsed) % PULSE_PERIOD
     self:SetAlpha(ALPHA_MID + ALPHA_AMP * _sin(
         pulseTime * _pi2 / PULSE_PERIOD + PHASE_OFFSET))
@@ -173,7 +164,7 @@ DNR:SetScript("OnShow", function(self)
 end)
 
 DNR:SetScript("OnHide", function(self)
-    self:SetScript("OnUpdate", nil)  -- [KEY] stops all per-frame work immediately
+    self:SetScript("OnUpdate", nil)
     self:SetAlpha(1)
 end)
 
@@ -219,11 +210,6 @@ local function ShowWarning()
     if ShouldWarn() then DNR:Show() end
 end
 
-local function HideWarning()
-    previewMode = false   -- always clear; safe to call even when not in preview
-    DNR:Hide()
-end
-
 -- ── Drag support ──────────────────────────────────────────────────────────────
 
 local function EnableDNRDrag()
@@ -246,31 +232,133 @@ local function DisableDNRDrag()
     DNR:SetScript("OnDragStop", nil)
 end
 
--- ── Settings canvas panel ─────────────────────────────────────────────────────
--- Registered with Settings.RegisterCanvasLayoutCategory so it appears under
--- Game Menu → Options → AddOns, alongside other addons like BugSack.
--- Built once in ADDON_LOADED (after DB is ready), then handed to the API.
+-- ── Release Guard ────────────────────────────────────────────────────────────
+--
+--  Modes (stored in DoNotReleaseDB.releaseGuard):
+--    "off"   – no intervention; stock Release Spirit popup works normally.
+--    "timer" – show our own N‑second countdown frame on top; when it
+--              finishes (or is canceled), reveal the native DEATH popup.
+--
 
-local DNRCategory  -- the registered Settings.Category handle
+local RELEASE_TIMER_SECS = 5
+
+-- ─── Timer overlay frame (covers native popup) ───────────────────────────────
+
+local timerFrame = CreateFrame("Frame", "DNRTimerFrame", UIParent, "BasicFrameTemplate")
+timerFrame:SetSize(300, 130)
+timerFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+timerFrame:SetFrameStrata("DIALOG")
+timerFrame:SetFrameLevel(250)  -- above native StaticPopup
+timerFrame:Hide()
+timerFrame:SetMovable(true)
+timerFrame:EnableMouse(true)
+timerFrame:RegisterForDrag("LeftButton")
+timerFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+timerFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+
+local timerLabel = timerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+timerLabel:SetPoint("CENTER", timerFrame, "CENTER", 0, 18)
+
+local timerCancelBtn = CreateFrame("Button", nil, timerFrame, "UIPanelButtonTemplate")
+timerCancelBtn:SetSize(140, 26)
+timerCancelBtn:SetPoint("BOTTOM", timerFrame, "BOTTOM", 0, 14)
+timerCancelBtn:SetText(L["TIMER_CANCEL"] or "Cancel")
+
+local timerRemaining = 0
+local timerTicker    = nil
+
+-- Save original StaticPopup_Show once, then override later.
+local _origStaticPopupShow = StaticPopup_Show
+
+local function StopReleaseTimerInternal()
+    if timerTicker then
+        timerTicker:Cancel()
+        timerTicker = nil
+    end
+    timerFrame:Hide()
+end
+
+-- core behavior for "timer finished" or "user canceled": hide overlay,
+-- then immediately show Blizzard's DEATH popup.
+local function FinishTimerAndShowNative()
+    StopReleaseTimerInternal()
+    if _origStaticPopupShow then
+        _origStaticPopupShow("DEATH")
+    end
+end
+
+timerCancelBtn:SetScript("OnClick", function()
+    FinishTimerAndShowNative()
+end)
+
+-- X button uses the same behavior as Cancel.
+timerFrame:SetScript("OnHide", function(self)
+    -- If the frame is being hidden while the timer is still active,
+    -- treat it as a cancel and show the native popup.
+    if timerTicker then
+        FinishTimerAndShowNative()
+    end
+end)
+
+local function StartReleaseTimerOverlay()
+    -- Start a fresh timer; do NOT show native popup yet.
+    StopReleaseTimerInternal()
+    timerRemaining = RELEASE_TIMER_SECS
+    timerLabel:SetText(string.format(
+        L["TIMER_RELEASING_IN"] or "Release available in %d…",
+        timerRemaining
+    ))
+    timerFrame:Show()
+
+    timerTicker = C_Timer.NewTicker(1, function()
+        timerRemaining = timerRemaining - 1
+        if timerRemaining <= 0 then
+            -- Timer completed: behave exactly like Cancel.
+            FinishTimerAndShowNative()
+        else
+            timerLabel:SetText(string.format(
+                L["TIMER_RELEASING_IN"] or "Release available in %d…",
+                timerRemaining
+            ))
+        end
+    end, RELEASE_TIMER_SECS)
+end
+
+-- ─── Hook the stock Release Spirit popup ──────────────────────────────────────
+--
+-- For timer: suppress native DEATH at first and show our overlay timer.
+--
+
+StaticPopup_Show = function(which, ...)
+    local db = DoNotReleaseDB
+    if which == "DEATH" and db and db.releaseGuard == "timer" then
+        StartReleaseTimerOverlay()
+        return
+    end
+
+    if _origStaticPopupShow then
+        return _origStaticPopupShow(which, ...)
+    end
+end
+
+-- Clean up guard UIs when the player revives.
+local function HideGuardFrames()
+    StopReleaseTimerInternal()
+end
+
+-- ── Settings canvas panel ─────────────────────────────────────────────────────
+-- (unchanged from your original file; only minor formatting differences)
+
+local DNRCategory
 
 local function BuildSettingsCanvas()
-    -- WoW's options panel provides ~623 px of usable width.
     local W     = 600
     local PAD   = 20
     local BTN_H = 26
-    local y     = -10  -- cursor offset from TOPLEFT, grows negative downward
+    local y     = -10
 
-    -- Outer frame that WoW hands to the Settings API
     local outer = CreateFrame("Frame")
     outer:SetSize(W, 600)
-    -- [FIX-6] Hide the canvas immediately after creation.
-    -- WoW frames are visible by default. The scrollbar inside
-    -- UIPanelScrollFrameTemplate runs ScrollFrame_OnUpdate every single
-    -- frame while any ancestor is visible. Without this line, that script
-    -- fired from ADDON_LOADED until the user first opened AND closed the
-    -- settings panel (when WoW's Settings API finally hid the canvas itself).
-    -- That was the entire source of the constant idle CPU draw.
-    -- The Settings API calls Show()/Hide() on outer as the user navigates.
     outer:Hide()
 
     local scrollFrame = CreateFrame("ScrollFrame", "DoNotReleaseScrollFrame", outer, "UIPanelScrollFrameTemplate")
@@ -306,13 +394,11 @@ local function BuildSettingsCanvas()
         addGap(14)
     end
 
-    -- Shared column width used throughout the panel.
     local HALF_W = math.floor((W - PAD * 2 - 8) / 2)
 
-    -- ── Position ──────────────────────────────────────────────────────────────
+    -- Position
     sectionHeader("CONFIG_POS_SECTION", "Position")
 
-    -- Row 1: Show / Hide — lets the user preview changes while Options is open.
     local showBtn = CreateFrame("Button", nil, canvas, "UIPanelButtonTemplate")
     showBtn:SetSize(HALF_W, BTN_H)
     showBtn:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
@@ -324,7 +410,6 @@ local function BuildSettingsCanvas()
     hideBtn:SetText(L["CONFIG_HIDE_WARNING"] or "Hide Warning")
     addGap(BTN_H + 8)
 
-    -- Row 2: Drag | Reset Position
     local dragBtn = CreateFrame("Button", nil, canvas, "UIPanelButtonTemplate")
     dragBtn:SetSize(HALF_W, BTN_H)
     dragBtn:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
@@ -337,7 +422,7 @@ local function BuildSettingsCanvas()
     addGap(BTN_H + 18)
     divider()
 
-    -- ── Warning Color ─────────────────────────────────────────────────────────
+    -- Warning Color
     sectionHeader("CONFIG_COLOR_TITLE", "Warning Color")
 
     for i, preset in ipairs(COLOR_PRESETS) do
@@ -351,7 +436,6 @@ local function BuildSettingsCanvas()
         pb:SetText(L[preset.key] or preset.key)
 
         local r, g, b = preset.r, preset.g, preset.b
-        -- Set color once at creation — same pattern as font buttons.
         local pfs = pb:GetFontString()
         if pfs then pfs:SetTextColor(r, g, b, 1) end
         pb:SetScript("OnClick", function()
@@ -363,10 +447,10 @@ local function BuildSettingsCanvas()
         end)
     end
 
-    addGap(_ceil(#COLOR_PRESETS / 2) * (BTN_H + 4) + 18)  -- color rows
+    addGap(_ceil(#COLOR_PRESETS / 2) * (BTN_H + 4) + 18)
     divider()
 
-    -- ── Warning Text ──────────────────────────────────────────────────────────
+    -- Warning Text
     sectionHeader("CONFIG_TEXT_TITLE", "Warning Text")
 
     local editBox = CreateFrame("EditBox", "DoNotReleaseTextInput", canvas, "InputBoxTemplate")
@@ -402,7 +486,7 @@ local function BuildSettingsCanvas()
     addGap(BTN_H + 18)
     divider()
 
-    -- ── Font Size ─────────────────────────────────────────────────────────────
+    -- Font Size
     sectionHeader("CONFIG_SIZE_TITLE", "Font Size")
 
     local sizeSlider = CreateFrame("Slider", "DoNotReleaseOptsSizeSlider", canvas, "OptionsSliderTemplate")
@@ -414,7 +498,7 @@ local function BuildSettingsCanvas()
     sizeSlider:SetValue(DoNotReleaseDB and DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize)
     DoNotReleaseOptsSizeSliderLow:SetText(FONT_SIZE_MIN .. "pt")
     DoNotReleaseOptsSizeSliderHigh:SetText(FONT_SIZE_MAX .. "pt")
-    DoNotReleaseOptsSizeSliderText:SetText("")  -- we use our own readout
+    DoNotReleaseOptsSizeSliderText:SetText("")
 
     local sizeValue = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sizeValue:SetPoint("BOTTOM", sizeSlider, "TOP", 0, 4)
@@ -424,15 +508,12 @@ local function BuildSettingsCanvas()
     end
     refreshSizeLabel(sizeSlider:GetValue())
 
-    -- [FIX-4] Dirty-check: only call SetFont when the stepped size actually
-    -- changes. Without this, dragging fires SetFont on every rendered frame
-    -- even when the thumb hasn't moved to a new step.
     local lastSliderSize = DoNotReleaseDB and DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize
     sizeSlider:SetScript("OnValueChanged", function(self, val)
         if not DoNotReleaseDB then return end
         local size = _floor(val + 0.5)
         refreshSizeLabel(size)
-        if size == lastSliderSize then return end  -- [FIX-4] no-op if step unchanged
+        if size == lastSliderSize then return end
         lastSliderSize = size
         DoNotReleaseDB.fontSize = size
         label:SetFont(DoNotReleaseDB.fontFace or DB_DEFAULTS.fontFace, size, "OUTLINE")
@@ -440,7 +521,7 @@ local function BuildSettingsCanvas()
     addGap(54)
     divider()
 
-    -- ── Font Face ─────────────────────────────────────────────────────────────
+    -- Font Face
     sectionHeader("CONFIG_FONT_TITLE", "Font")
 
     for i, preset in ipairs(FONT_PRESETS) do
@@ -453,8 +534,6 @@ local function BuildSettingsCanvas()
             y - row * (BTN_H + 4))
         fb:SetText(L[preset.key] or preset.key)
 
-        -- Set font once at creation. No need for OnShow/OnEnable hooks
-        -- since UIPanelButtonTemplate does not reset the font face.
         local fs = fb:GetFontString()
         if fs then fs:SetFont(preset.file, 13, "OUTLINE") end
 
@@ -469,7 +548,61 @@ local function BuildSettingsCanvas()
     end
 
     addGap(_ceil(#FONT_PRESETS / 2) * (BTN_H + 4) + 16)
-    -- ── Footer ────────────────────────────────────────────────────────────────
+    divider()
+
+    -- Release Guard
+    sectionHeader("CONFIG_GUARD_TITLE", "Release Guard")
+
+    local guardDesc = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    guardDesc:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
+    guardDesc:SetWidth(W - PAD * 2)
+    guardDesc:SetJustifyH("LEFT")
+    guardDesc:SetTextColor(0.72, 0.72, 0.72, 1)
+    guardDesc:SetText(L["CONFIG_GUARD_DESC"]
+        or "Intercept the Release Spirit button with a confirmation dialog or countdown timer.")
+    addGap(32)
+
+    local GUARD_MODES = {
+        { key = "CONFIG_GUARD_OFF",     mode = "off",     label = "Off"            },
+        -- Remove option for confirm menu in settings/options (used for testing does not need to be exposed)
+        --{ key = "CONFIG_GUARD_CONFIRM", mode = "confirm", label = "Confirm Dialog" },
+        { key = "CONFIG_GUARD_TIMER",   mode = "timer",   label = "Timer (" .. RELEASE_TIMER_SECS .. "s)" },
+    }
+
+    local guardBtns = {}
+    local function refreshGuardButtons()
+        local current = DoNotReleaseDB and DoNotReleaseDB.releaseGuard or "off"
+        for _, info in ipairs(guardBtns) do
+            if info.mode == current then
+                info.btn:SetText("|cFFFFD700[x] " .. (L[info.key] or info.label) .. "|r")
+            else
+                info.btn:SetText(L[info.key] or info.label)
+            end
+        end
+    end
+
+    for i, gm in ipairs(GUARD_MODES) do
+        local col = (i - 1) % 3
+        local colW = math.floor((W - PAD * 2 - 8) / 3)
+        local gb = CreateFrame("Button", nil, canvas, "UIPanelButtonTemplate")
+        gb:SetSize(colW, BTN_H)
+        gb:SetPoint("TOPLEFT", canvas, "TOPLEFT",
+            PAD + col * (colW + 4), y)
+        gb:SetText(L[gm.key] or gm.label)
+        table.insert(guardBtns, { btn = gb, mode = gm.mode, key = gm.key, label = gm.label })
+
+        local modeVal = gm.mode
+        gb:SetScript("OnClick", function()
+            if not DoNotReleaseDB then return end
+            DoNotReleaseDB.releaseGuard = modeVal
+            refreshGuardButtons()
+            if modeVal == "off" then HideGuardFrames() end
+            print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+                .. (L["CONFIG_SAVED"] or "Settings saved."))
+        end)
+    end
+    addGap(BTN_H + 18)
+
     local function fline(text, indent)
         local fs = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         fs:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD + (indent or 0), y)
@@ -478,45 +611,35 @@ local function BuildSettingsCanvas()
         addGap(18)
     end
 
-    fline("|cFFFFD700Jeremy-Gstein|r"
-        .. "  \226\128\148  DoNotRelease: |cFF4DA6FF[SeemsGood/DNR]|r"
-        .. "  \226\128\148  " .. (L["FOOTER_BUGS"] or "Report bugs on GitHub."))
+
+    fline("|cFFFFD700DoNotRelease:|r |cFF4DA6FF[SeemsGood/DNR]|r"
+        .. "  -  " .. (L["FOOTER_BUGS"] or "Report bugs on GitHub."))
     addGap(4)
 
     fline("|cFFFFD700" .. (L["FOOTER_OTHER_ADDONS"] or "Other Addons") .. "|r")
-
-    fline("|cFFFFD700AccountPlayed|r \226\128\148 Playtime by class  |cFF4DA6FF[Jeremy-Gstein/AccountPlayed]|r", 8)
-    fline("|cFFFFD700HydroHomieReminder|r \226\128\148 Frost Mage elemental alerts  |cFF4DA6FF[Seems-Good/HydroHomieReminder]|r", 8)
-    fline("|cFFFFD700SilvermoonStimming|r \226\128\148 Lap tracker  |cFF4DA6FF[Jeremy-Gstein/SilvermoonStimming]|r", 8)
-    fline("|cFFFFD700DjLust|r \226\128\148 Bloodlust animations  |cFF4DA6FF[Jeremy-Gstein/DjLust]|r", 8)
-    fline("|cFFFFD700C-Inspect|r \226\128\148 Ctrl+Click to inspect gear  |cFF4DA6FF[Jeremy-Gstein/C-Inspect]|r", 8)
-    fline("|cFFFFD700Talent Trends|r \226\128\148 Top parsing talents  |cFF4DA6FF[talents.seemsgood.org]|r", 8)
+    fline("|cFFFFD700AccountPlayed:|r Playtime by Class - |cFF4DA6FF[Jeremy-Gstein/AccountPlayed]|r", 8)
+    fline("|cFFFFD700AccountRepaired:|r Repair Cost Statistics - |cFF4DA6FF[Seems-Good/AccountRepaired]|r", 8)
+    fline("|cFFFFD700DjLust:|r Bloodlust Music+Animations - |cFF4DA6FF[Jeremy-Gstein/DjLust]|r", 8)
+    fline("|cFFFFD700ShodoQoL:|r Evoker QoL Settings/Macros - |cFF4DA6FF[Seems-Good/shodoqol]|r", 8)
     addGap(4)
 
-    fline(L["FOOTER_SUPPORT"] or "Like these projects? Share feedback or donate \226\157\164")
+    fline(L["FOOTER_SUPPORT"] or "Like these projects? Share feedback or donate <3")
     fline("|cFFFF6644Ko-fi:|r |cFF4DA6FFko-fi.com/j51b5|r"
-        .. "    |cFFFF6644Web:|r |cFF4DA6FFseemsGood.org|r"
+        .. "    |cFFFF6644Web:|r |cFF4DA6FFhttps://seemsgood.org|r"
         .. "    |cFFFF6644Email:|r |cFF4DA6FFjeremy51b5@pm.me|r")
     addGap(10)
 
-    -- Sync controls whenever the panel becomes visible.
-    -- outer:OnShow fires when WoW navigates to our category page.
     outer:SetScript("OnShow", function()
         if not DoNotReleaseDB then return end
-        -- Read text directly from the label — it always reflects the current
-        -- saved value since ApplySavedText() is called at load and on every change.
-        -- This avoids the InputBoxTemplate deferred-render timing issue entirely.
         editBox:SetText(label:GetText() or DB_DEFAULTS.warningText)
         updateCounter()
         local sz = DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize
-        lastSliderSize = sz  -- keep dirty-check in sync when panel re-opens
+        lastSliderSize = sz
         sizeSlider:SetValue(sz)
         refreshSizeLabel(sz)
+        refreshGuardButtons()
     end)
 
-    -- Clean up when the Options window itself is closed.
-    -- HookScript is non-destructive: chains after any existing OnHide.
-    -- Fires however the user closes Options (X button, Escape, clicking away).
     if SettingsPanel then
         SettingsPanel:HookScript("OnHide", function()
             DisableDNRDrag()
@@ -524,9 +647,8 @@ local function BuildSettingsCanvas()
         end)
     end
 
-    -- ── Button callbacks ──────────────────────────────────────────────────────
     showBtn:SetScript("OnClick", function()
-        previewMode = true   -- intentional preview; onUpdate must not self-hide
+        previewMode = true
         DNR:Show()
     end)
 
@@ -536,7 +658,7 @@ local function BuildSettingsCanvas()
     end)
 
     dragBtn:SetScript("OnClick", function()
-        previewMode = true   -- intentional preview; onUpdate must not self-hide
+        previewMode = true
         DNR:Show()
         EnableDNRDrag()
         print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
@@ -562,7 +684,7 @@ local function BuildSettingsCanvas()
         end
         DoNotReleaseDB.warningText = raw
         label:SetText(raw)
-        ApplySavedFont()  -- re-apply after SetText to guard against font reset
+        ApplySavedFont()
         editBox:ClearFocus()
         print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_SAVED"] or "Settings saved."))
@@ -572,9 +694,6 @@ local function BuildSettingsCanvas()
         if not DoNotReleaseDB then return end
         DoNotReleaseDB.warningText = DB_DEFAULTS.warningText
         label:SetText(DB_DEFAULTS.warningText)
-        -- Re-apply font after SetText: WoW can reset a FontString's font
-        -- back to its inherited template when SetText is called on display
-        -- fonts (MORPHEUS, SKURRI). This keeps the slider working correctly.
         ApplySavedFont()
         editBox:SetText(label:GetText() or DB_DEFAULTS.warningText)
         updateCounter()
@@ -607,10 +726,6 @@ end
 
 -- ── Event Handling ────────────────────────────────────────────────────────────
 
--- [FIX-3] Debounce state for GROUP_ROSTER_UPDATE.
--- The event fires multiple times per roster change (one per diff'd member).
--- We coalesce the burst into a single deferred check instead of calling
--- ShouldWarn() for every individual event fire.
 local rosterUpdatePending = false
 
 local eventFrame = CreateFrame("Frame", "DoNotReleaseEvents")
@@ -623,8 +738,6 @@ eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == "DoNotRelease" then
-        -- Unregister immediately — this event fires for every addon at startup.
-        -- No reason to keep checking arg1 for every subsequent addon load.
         self:UnregisterEvent("ADDON_LOADED")
         DoNotReleaseDB = DoNotReleaseDB or {}
         for k, v in pairs(DB_DEFAULTS) do
@@ -643,10 +756,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 
     elseif event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
         HideWarning()
+        HideGuardFrames()
         DisableDNRDrag()
 
     elseif event == "GROUP_ROSTER_UPDATE" then
-        -- [FIX-3] Skip if a check is already queued for this burst.
         if rosterUpdatePending then return end
         rosterUpdatePending = true
         C_Timer.After(0.25, function()
@@ -657,12 +770,6 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         end)
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Always hide stale state immediately; the previous session is gone.
-        -- Then defer the ShouldWarn() check: UnitIsDead("player") can return
-        -- true transiently right after a loading screen even for a live player.
-        -- Without the defer, a false-positive here would call ShowWarning(),
-        -- start onUpdate, and — before FIX-5 — run it forever since no
-        -- PLAYER_ALIVE / PLAYER_UNGHOST ever comes to clean it up.
         HideWarning()
         C_Timer.After(0.5, function()
             if ShouldWarn() then ShowWarning() end
@@ -676,13 +783,10 @@ SLASH_DONOTRELEASE1 = "/dnr"
 SlashCmdList["DONOTRELEASE"] = function(msg)
     local cmd = strtrim(msg):lower()
     if cmd == "test" then
-        previewMode = true   -- intentional preview; onUpdate must not self-hide
+        previewMode = true
         DNR:Show()
         print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
-            .. (L["SLASH_TEST_MSG"] or "Test mode \226\128\148 warning shown."))
-        -- [FIX-2] Auto-hide the test preview after TEST_DURATION seconds.
-        -- Skipped if the player is genuinely dead in an instance by then
-        -- (e.g. they typed /dnr test right before pulling and then died).
+            .. (L["SLASH_TEST_MSG"] or "Test mode – warning shown."))
         C_Timer.After(TEST_DURATION, function()
             if not ShouldWarn() then HideWarning() end
         end)

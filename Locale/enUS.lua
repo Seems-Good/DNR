@@ -67,4 +67,4 @@ L["CONFIG_API_UNAVAILABLE"]     = "Settings API unavailable on this client versi
 -- ── Footer ────────────────────────────────────────────────────────────────────
 L["FOOTER_BUGS"]                = "Report bugs on GitHub."
 L["FOOTER_OTHER_ADDONS"]        = "Other Addons"
-L["FOOTER_SUPPORT"]             = "Like these projects? Share feedback or donate"
+L["FOOTER_SUPPORT"]             = "Like these projects? Share feedback or donate <3"
