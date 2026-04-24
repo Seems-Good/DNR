@@ -9,12 +9,14 @@ if locale ~= "enUS" and locale ~= "enGB" then return end
 
 DoNotReleaseL = DoNotReleaseL or {}
 local L = DoNotReleaseL
+local VERSION = "@project-version@"
 
 -- ── Warning overlay ───────────────────────────────────────────────────────────
 L["WARNING_TEXT"]               = "PLEASE DO NOT RELEASE"
 
 -- ── Addon tag (used in print() prefix) ───────────────────────────────────────
 L["ADDON_TAG"]                  = "DoNotRelease"
+L["PRETTY_ADDON_TAG"]           = "DoNotRelease-(" .. VERSION .. ")"
 
 -- ── Slash-command feedback ────────────────────────────────────────────────────
 L["SLASH_HELP"]                 = "/dnr test  |  /dnr hide  |  /dnr config"

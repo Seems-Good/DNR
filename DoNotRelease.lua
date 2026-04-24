@@ -86,6 +86,7 @@ local COLOR_PRESETS = {
     { key = "COLOR_CYAN",   r = 0.0, g = 1,    b = 1   },
 }
 
+local VERSION = "@project-version@"
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 
 local function PlayerIsInInstance()
@@ -220,7 +221,7 @@ local function EnableDNRDrag()
     DNR:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         SavePosition()
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_SAVED"] or "Settings saved."))
     end)
 end
@@ -442,7 +443,7 @@ local function BuildSettingsCanvas()
             if not DoNotReleaseDB then return end
             DoNotReleaseDB.colorR, DoNotReleaseDB.colorG, DoNotReleaseDB.colorB = r, g, b
             label:SetTextColor(r, g, b, 1)
-            print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+            print("|cFFFF4444" .. (L["PRETTY_PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
                 .. (L["CONFIG_SAVED"] or "Settings saved."))
         end)
     end
@@ -542,7 +543,7 @@ local function BuildSettingsCanvas()
             if not DoNotReleaseDB then return end
             DoNotReleaseDB.fontFace = fFile
             label:SetFont(fFile, DoNotReleaseDB.fontSize or DB_DEFAULTS.fontSize, "OUTLINE")
-            print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+            print("|cFFFF4444" .. (L["PRETTY_PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
                 .. (L["CONFIG_SAVED"] or "Settings saved."))
         end)
     end
@@ -597,7 +598,7 @@ local function BuildSettingsCanvas()
             DoNotReleaseDB.releaseGuard = modeVal
             refreshGuardButtons()
             if modeVal == "off" then HideGuardFrames() end
-            print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+            print("|cFFFF4444" .. (L["PRETTY_PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
                 .. (L["CONFIG_SAVED"] or "Settings saved."))
         end)
     end
@@ -661,7 +662,7 @@ local function BuildSettingsCanvas()
         previewMode = true
         DNR:Show()
         EnableDNRDrag()
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_DRAG_INLINE_MSG"] or "Drag the warning text, then release to save."))
     end)
 
@@ -670,7 +671,7 @@ local function BuildSettingsCanvas()
         DoNotReleaseDB.posX = DB_DEFAULTS.posX
         DoNotReleaseDB.posY = DB_DEFAULTS.posY
         ApplySavedPosition()
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_POS_RESET_MSG"] or "Position reset to default."))
     end)
 
@@ -678,7 +679,7 @@ local function BuildSettingsCanvas()
         if not DoNotReleaseDB then return end
         local raw = strtrim(editBox:GetText())
         if raw == "" then
-            print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+            print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
                 .. (L["CONFIG_TEXT_EMPTY_ERR"] or "Text cannot be empty."))
             return
         end
@@ -686,7 +687,7 @@ local function BuildSettingsCanvas()
         label:SetText(raw)
         ApplySavedFont()
         editBox:ClearFocus()
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_SAVED"] or "Settings saved."))
     end)
 
@@ -697,7 +698,7 @@ local function BuildSettingsCanvas()
         ApplySavedFont()
         editBox:SetText(label:GetText() or DB_DEFAULTS.warningText)
         updateCounter()
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_TEXT_RESET_MSG"] or "Warning text reset to default."))
     end)
 
@@ -706,7 +707,7 @@ end
 
 local function RegisterSettingsPanel()
     if not (Settings and Settings.RegisterCanvasLayoutCategory) then
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_API_UNAVAILABLE"] or "Settings API unavailable on this client version."))
         return
     end
@@ -719,7 +720,7 @@ local function OpenConfig()
     if DNRCategory and Settings and Settings.OpenToCategory then
         Settings.OpenToCategory(DNRCategory:GetID())
     else
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["CONFIG_API_UNAVAILABLE"] or "Settings API unavailable on this client version."))
     end
 end
@@ -785,19 +786,19 @@ SlashCmdList["DONOTRELEASE"] = function(msg)
     if cmd == "test" then
         previewMode = true
         DNR:Show()
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
-            .. (L["SLASH_TEST_MSG"] or "Test mode – warning shown."))
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
+            .. (L["SLASH_TEST_MSG"] or "Test mode - warning shown."))
         C_Timer.After(TEST_DURATION, function()
             if not ShouldWarn() then HideWarning() end
         end)
     elseif cmd == "hide" then
         HideWarning()
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. ":|r "
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. ":|r "
             .. (L["SLASH_HIDE_MSG"] or "Warning hidden."))
     elseif cmd == "config" then
         OpenConfig()
     else
-        print("|cFFFF4444" .. (L["ADDON_TAG"] or "DoNotRelease") .. "|r  —  |cFFFFD700"
+        print("|cFFFF4444" .. (L["PRETTY_ADDON_TAG"] or "DoNotRelease") .. "|r  -  |cFFFFD700"
             .. (L["SLASH_HELP"] or "/dnr test  |  /dnr hide  |  /dnr config") .. "|r")
     end
 end
