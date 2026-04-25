@@ -8,6 +8,13 @@ Simple reminder addon to not release on death.
 - Configure position and customize color and text to display on screen.
 - Inspired by similar weakauras
 
+**Release Guard (Optional)**
+Release Guard allows 4 options to further prevent the player from pressing release spirit.
+- 5 Second Timer (_**DEFAULT**_)
+- Random 4 Digit Code (captcha style)
+- TOTP/2FA ([RFC 6238](https://www.rfc-editor.org/rfc/rfc6238)) Compatible with your fav. Authenticator app.
+- Off (Just display text and not mess with native release UI)
+
 **Usage:**
 - `/dnr` - Prints available commands.
 - `/dnr config` - Opens a menu to change position text on screen and color of text.
