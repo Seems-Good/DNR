@@ -60,7 +60,7 @@ local DB_DEFAULTS = {
     warningText  = "PLEASE DO NOT RELEASE",
     fontSize     = 64,
     fontFace     = "Fonts\\FRIZQT__.TTF",
-    releaseGuard = "timer",   -- "off" | "timer" (set timer as default)
+    releaseGuard = "timer",   -- "off" | "timer" | "twofactor"
 }
 
 local MAX_TEXT_LEN  = 32
@@ -236,9 +236,12 @@ end
 -- ── Release Guard ────────────────────────────────────────────────────────────
 --
 --  Modes (stored in DoNotReleaseDB.releaseGuard):
---    "off"   – no intervention; stock Release Spirit popup works normally.
---    "timer" – show our own N‑second countdown frame on top; when it
---              finishes (or is canceled), reveal the native DEATH popup.
+--    "off"       – no intervention; stock Release Spirit popup works normally.
+--    "timer"     – show our own N‑second countdown frame on top; when it
+--                  finishes (or is canceled), reveal the native DEATH popup.
+--    "twofactor" – show a random 4-digit code the player must type before
+--                  the native DEATH popup is revealed. Cancel skips the check
+--                  and reveals the popup immediately, identical to timer mode.
 --
 
 local RELEASE_TIMER_SECS = 5
@@ -325,16 +328,156 @@ local function StartReleaseTimerOverlay()
     end, RELEASE_TIMER_SECS)
 end
 
+-- ─── Two-Factor overlay frame ─────────────────────────────────────────────────
+--
+--  Generates a fresh random 4-digit code each time the player dies.
+--  The player must type the code exactly into the EditBox and press
+--  Confirm (or Enter) before the native DEATH popup is revealed.
+--  Cancel immediately reveals the native popup without releasing, just
+--  like the timer's Cancel behavior.
+--
+
+local tfFrame = CreateFrame("Frame", "DNRTwoFactorFrame", UIParent, "BasicFrameTemplate")
+tfFrame:SetSize(320, 190)
+tfFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+tfFrame:SetFrameStrata("DIALOG")
+tfFrame:SetFrameLevel(250)
+tfFrame:Hide()
+tfFrame:SetMovable(true)
+tfFrame:EnableMouse(true)
+tfFrame:RegisterForDrag("LeftButton")
+tfFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+tfFrame:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing() end)
+
+-- Title text
+local tfTitle = tfFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+tfTitle:SetPoint("TOP", tfFrame, "TOP", 0, -28)
+tfTitle:SetText(L["TF_TITLE"] or "Two-Factor Release")
+
+-- Instruction text
+local tfInstr = tfFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+tfInstr:SetPoint("TOP", tfTitle, "BOTTOM", 0, -6)
+tfInstr:SetTextColor(0.8, 0.8, 0.8, 1)
+tfInstr:SetText(L["TF_INSTRUCTION"] or "Type the code below to release:")
+
+-- The randomly generated code display
+local tfCodeLabel = tfFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+tfCodeLabel:SetPoint("TOP", tfInstr, "BOTTOM", 0, -8)
+tfCodeLabel:SetFont("Fonts\\FRIZQT__.TTF", 28, "OUTLINE")
+tfCodeLabel:SetTextColor(1, 0.82, 0.0, 1)  -- gold, distinct and easy to read
+
+-- Input box
+local tfInput = CreateFrame("EditBox", "DNRTwoFactorInput", tfFrame, "InputBoxTemplate")
+tfInput:SetSize(120, 28)
+tfInput:SetPoint("TOP", tfCodeLabel, "BOTTOM", 0, -10)
+tfInput:SetMaxLetters(4)
+tfInput:SetAutoFocus(false)
+tfInput:SetNumeric(true)   -- digits only; prevents accidental letter entry
+
+-- Feedback label (shows "Incorrect code" on mismatch)
+local tfFeedback = tfFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+tfFeedback:SetPoint("TOP", tfInput, "BOTTOM", 0, -4)
+tfFeedback:SetTextColor(1, 0.2, 0.2, 1)
+tfFeedback:SetText("")
+
+-- Confirm button
+local tfConfirmBtn = CreateFrame("Button", nil, tfFrame, "UIPanelButtonTemplate")
+tfConfirmBtn:SetSize(130, 26)
+tfConfirmBtn:SetPoint("BOTTOMLEFT", tfFrame, "BOTTOMLEFT", 14, 14)
+tfConfirmBtn:SetText(L["TF_CONFIRM"] or "Confirm")
+
+-- Cancel button
+local tfCancelBtn = CreateFrame("Button", nil, tfFrame, "UIPanelButtonTemplate")
+tfCancelBtn:SetSize(130, 26)
+tfCancelBtn:SetPoint("BOTTOMRIGHT", tfFrame, "BOTTOMRIGHT", -14, 14)
+tfCancelBtn:SetText(L["TF_CANCEL"] or "Cancel")
+
+-- Internal state
+local tfCurrentCode = ""
+
+local function GenerateTwoFactorCode()
+    -- Produces a zero-padded 4-digit string e.g. "0391", "7823"
+    return string.format("%04d", math.random(0, 9999))
+end
+
+local function StopTwoFactorInternal()
+    tfFrame:Hide()
+    tfInput:SetText("")
+    tfFeedback:SetText("")
+    tfInput:ClearFocus()
+end
+
+local function FinishTwoFactorAndShowNative()
+    StopTwoFactorInternal()
+    if _origStaticPopupShow then
+        _origStaticPopupShow("DEATH")
+    end
+end
+
+local function AttemptTwoFactorConfirm()
+    local entered = strtrim(tfInput:GetText())
+    if entered == tfCurrentCode then
+        FinishTwoFactorAndShowNative()
+    else
+        -- Wrong code: flash feedback, clear input, keep frame open
+        tfFeedback:SetText(L["TF_WRONG_CODE"] or "Incorrect code — try again.")
+        tfInput:SetText("")
+        tfInput:SetFocus()
+    end
+end
+
+tfConfirmBtn:SetScript("OnClick", AttemptTwoFactorConfirm)
+
+-- Allow pressing Enter to confirm
+tfInput:SetScript("OnEnterPressed", AttemptTwoFactorConfirm)
+
+tfCancelBtn:SetScript("OnClick", function()
+    FinishTwoFactorAndShowNative()
+end)
+
+-- X button: treat as cancel
+tfFrame:SetScript("OnHide", function(self)
+    -- Only propagate to native if we still have an active session
+    -- (i.e. the frame wasn't hidden by StopTwoFactorInternal itself).
+    -- We detect this by checking if the input still has text OR a code is set.
+    -- Use a guard flag to avoid recursion from StopTwoFactorInternal → OnHide.
+    if tfCurrentCode ~= "" then
+        local code = tfCurrentCode
+        tfCurrentCode = ""   -- clear first to prevent re-entry
+        tfInput:SetText("")
+        tfFeedback:SetText("")
+        tfInput:ClearFocus()
+        if _origStaticPopupShow then
+            _origStaticPopupShow("DEATH")
+        end
+    end
+end)
+
+local function StartTwoFactorOverlay()
+    tfCurrentCode = GenerateTwoFactorCode()
+    tfCodeLabel:SetText(tfCurrentCode)
+    tfInput:SetText("")
+    tfFeedback:SetText("")
+    tfFrame:Show()
+    tfInput:SetFocus()
+end
+
 -- ─── Hook the stock Release Spirit popup ──────────────────────────────────────
 --
--- For timer: suppress native DEATH at first and show our overlay timer.
+-- For timer:     suppress native DEATH at first and show our countdown overlay.
+-- For twofactor: suppress native DEATH and show our code-entry overlay.
 --
 
 StaticPopup_Show = function(which, ...)
     local db = DoNotReleaseDB
-    if which == "DEATH" and db and db.releaseGuard == "timer" then
-        StartReleaseTimerOverlay()
-        return
+    if which == "DEATH" and db then
+        if db.releaseGuard == "timer" then
+            StartReleaseTimerOverlay()
+            return
+        elseif db.releaseGuard == "twofactor" then
+            StartTwoFactorOverlay()
+            return
+        end
     end
 
     if _origStaticPopupShow then
@@ -345,10 +488,15 @@ end
 -- Clean up guard UIs when the player revives.
 local function HideGuardFrames()
     StopReleaseTimerInternal()
+    -- For two-factor, clear state without triggering the DEATH popup on revive.
+    tfCurrentCode = ""
+    tfInput:SetText("")
+    tfFeedback:SetText("")
+    tfInput:ClearFocus()
+    tfFrame:Hide()
 end
 
 -- ── Settings canvas panel ─────────────────────────────────────────────────────
--- (unchanged from your original file; only minor formatting differences)
 
 local DNRCategory
 
@@ -564,10 +712,9 @@ local function BuildSettingsCanvas()
     addGap(32)
 
     local GUARD_MODES = {
-        { key = "CONFIG_GUARD_OFF",     mode = "off",     label = "Off"            },
-        -- Remove option for confirm menu in settings/options (used for testing does not need to be exposed)
-        --{ key = "CONFIG_GUARD_CONFIRM", mode = "confirm", label = "Confirm Dialog" },
-        { key = "CONFIG_GUARD_TIMER",   mode = "timer",   label = "Timer (" .. RELEASE_TIMER_SECS .. "s)" },
+        { key = "CONFIG_GUARD_OFF",       mode = "off",       label = "Off"            },
+        { key = "CONFIG_GUARD_TIMER",     mode = "timer",     label = "Timer (" .. RELEASE_TIMER_SECS .. "s)" },
+        { key = "CONFIG_GUARD_TWOFACTOR", mode = "twofactor", label = "Two-Factor"     },
     }
 
     local guardBtns = {}
@@ -582,13 +729,14 @@ local function BuildSettingsCanvas()
         end
     end
 
+    -- Three guard modes: lay them out in three equal columns
+    local COL3_W = math.floor((W - PAD * 2 - 8) / 3)
     for i, gm in ipairs(GUARD_MODES) do
         local col = (i - 1) % 3
-        local colW = math.floor((W - PAD * 2 - 8) / 3)
         local gb = CreateFrame("Button", nil, canvas, "UIPanelButtonTemplate")
-        gb:SetSize(colW, BTN_H)
+        gb:SetSize(COL3_W, BTN_H)
         gb:SetPoint("TOPLEFT", canvas, "TOPLEFT",
-            PAD + col * (colW + 4), y)
+            PAD + col * (COL3_W + 4), y)
         gb:SetText(L[gm.key] or gm.label)
         table.insert(guardBtns, { btn = gb, mode = gm.mode, key = gm.key, label = gm.label })
 
@@ -611,7 +759,6 @@ local function BuildSettingsCanvas()
         fs:SetText(text)
         addGap(18)
     end
-
 
     fline("|cFFFFD700DoNotRelease:|r |cFF4DA6FF[SeemsGood/DNR]|r"
         .. "  -  " .. (L["FOOTER_BUGS"] or "Report bugs on GitHub."))
