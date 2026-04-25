@@ -1,7 +1,7 @@
 ## Interface: 120000, 120001, 120005
 ## Version: @project-version@
 ## Title: DoNotRelease
-## Note: Simple reminder addon to not release on death. Customizable, Lightweight, and Optimized for all content
+## Note: Simple reminder to not release on death. Customizable, Lightweight, and Optimized for all content
 ## Author: Jeremy-Gstein
 ## IconTexture: Interface\Icons\spell_holy_guardianspirit
 ## SavedVariables: DoNotReleaseDB
