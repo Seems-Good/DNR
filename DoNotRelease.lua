@@ -1,4 +1,3 @@
--- ============================================================
 --  DoNotRelease
 --  Shows a large pulsing "PLEASE DO NOT RELEASE" warning when
 --  the player dies inside an instance while in a group.
@@ -88,7 +87,7 @@ local COLOR_PRESETS = {
     { key = "COLOR_CYAN",   r = 0.0, g = 1,    b = 1   },
 }
 
-local VERSION = "@project-version@"
+local VERSION = "v1.3.1"
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 local function PlayerIsInInstance()
@@ -256,7 +255,7 @@ timerCancelBtn:SetText(L["TIMER_CANCEL"] or "Cancel")
 
 local timerRemaining = 0
 local timerTicker = nil
-local _origStaticPopupShow = StaticPopup_Show
+local _dnrSuppressNext = false  -- flag: let the next DEATH popup through unmodified
 
 local function StopReleaseTimerInternal()
     if timerTicker then
@@ -268,9 +267,8 @@ end
 
 local function FinishTimerAndShowNative()
     StopReleaseTimerInternal()
-    if _origStaticPopupShow then
-        _origStaticPopupShow("DEATH")
-    end
+    _dnrSuppressNext = true
+    StaticPopup_Show("DEATH")
 end
 
 timerCancelBtn:SetScript("OnClick", FinishTimerAndShowNative)
@@ -367,9 +365,8 @@ end
 
 local function FinishTwoFactorAndShowNative()
     StopTwoFactorInternal()
-    if _origStaticPopupShow then
-        _origStaticPopupShow("DEATH")
-    end
+    _dnrSuppressNext = true
+    StaticPopup_Show("DEATH")
 end
 
 local function AttemptTwoFactorConfirm()
@@ -393,9 +390,8 @@ tfFrame:SetScript("OnHide", function()
         tfInput:SetText("")
         tfFeedback:SetText("")
         tfInput:ClearFocus()
-        if _origStaticPopupShow then
-            _origStaticPopupShow("DEATH")
-        end
+        _dnrSuppressNext = true
+        StaticPopup_Show("DEATH")
     end
 end)
 
@@ -482,9 +478,8 @@ end
 
 local function FinishTotpAndShowNative()
     StopTotpInternal()
-    if _origStaticPopupShow then
-        _origStaticPopupShow("DEATH")
-    end
+    _dnrSuppressNext = true
+    StaticPopup_Show("DEATH")
 end
 
 local function AttemptTotpConfirm()
@@ -513,8 +508,9 @@ totpFrame:SetScript("OnHide", function()
         totpInput:SetText("")
         totpFeedback:SetText("")
         totpInput:ClearFocus()
-        if wasActive and _origStaticPopupShow then
-            _origStaticPopupShow("DEATH")
+        if wasActive then
+            _dnrSuppressNext = true
+            StaticPopup_Show("DEATH")
         end
     end
 end)
@@ -534,29 +530,37 @@ local function StartTotpOverlay()
     totpInput:SetFocus()
 end
 
-StaticPopup_Show = function(which, ...)
+-- Use hooksecurefunc so addon code is never on the call stack when
+-- protected functions (e.g. UpgradeItem) execute.  The hook fires
+-- *after* the secure Blizzard path, so we immediately hide the popup
+-- we don't want and show our guard overlay instead.
+hooksecurefunc("StaticPopup_Show", function(which)
+    if which ~= "DEATH" then return end
+    if _dnrSuppressNext then
+        -- This is our own re-call after a guard completed; let it through.
+        _dnrSuppressNext = false
+        return
+    end
     local db = DoNotReleaseDB
-    if which == "DEATH" and db then
-        local guard = db.releaseGuard or "off"
-        if guard == "timer" then
-            StartReleaseTimerOverlay()
-            return
-        elseif guard == "twofactor" or guard == "code" then
-            StartTwoFactorOverlay()
-            return
-        elseif guard == "totp" then
-            if DNR_TOTP and db.totpSecret and db.totpSecret ~= "" then
-                StartTotpOverlay()
-                return
-            else
-                print(TAG() .. (L["TOTP_NO_SECRET"] or "No TOTP secret configured. Set one up in /dnr config."))
-            end
+    if not db then return end
+    local guard = db.releaseGuard or "off"
+    if guard == "off" then return end
+
+    -- Hide the popup Blizzard just showed, then show our overlay.
+    StaticPopup_Hide("DEATH")
+
+    if guard == "timer" then
+        StartReleaseTimerOverlay()
+    elseif guard == "twofactor" or guard == "code" then
+        StartTwoFactorOverlay()
+    elseif guard == "totp" then
+        if DNR_TOTP and db.totpSecret and db.totpSecret ~= "" then
+            StartTotpOverlay()
+        else
+            print(TAG() .. (L["TOTP_NO_SECRET"] or "No TOTP secret configured. Set one up in /dnr config."))
         end
     end
-    if _origStaticPopupShow then
-        return _origStaticPopupShow(which, ...)
-    end
-end
+end)
 
 local function HideGuardFrames()
     StopReleaseTimerInternal()
