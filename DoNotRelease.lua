@@ -377,7 +377,7 @@ local function AttemptTwoFactorConfirm()
     if entered == tfCurrentCode then
         FinishTwoFactorAndShowNative()
     else
-        tfFeedback:SetText(L["TF_WRONG_CODE"] or "Incorrect code — try again.")
+        tfFeedback:SetText(L["TF_WRONG_CODE"] or "Incorrect code... try again.")
         tfInput:SetText("")
         tfInput:SetFocus()
     end
@@ -496,7 +496,7 @@ local function AttemptTotpConfirm()
     if DNR_TOTP.Verify(db.totpSecret, strtrim(totpInput:GetText())) then
         FinishTotpAndShowNative()
     else
-        totpFeedback:SetText(L["TOTP_WRONG_CODE"] or "Incorrect code — try again.")
+        totpFeedback:SetText(L["TOTP_WRONG_CODE"] or "Incorrect code... try again.")
         totpInput:SetText("")
         totpInput:SetFocus()
     end
@@ -845,7 +845,7 @@ local function BuildSettingsCanvas()
     totpDescLabel:SetJustifyH("LEFT")
     totpDescLabel:SetTextColor(0.72, 0.72, 0.72, 1)
     totpDescLabel:SetText(L["CONFIG_TOTP_DESC"]
-        or "Pair with Google Authenticator, Authy, or any TOTP app. Choose \"Enter setup key\" in your app.")
+        or "Pair with Google Authenticator, Authy, or any app that supports TOTP (RFC 6238). Choose \"Enter setup key manually\" in your app.")
     addGap(40)
 
     local totpKeyLabel = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -871,7 +871,7 @@ local function BuildSettingsCanvas()
     local s1 = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     s1:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
     s1:SetTextColor(0.72, 0.72, 0.72, 1)
-    s1:SetText(L["CONFIG_TOTP_STEP1"] or "1. Open your authenticator app → Add account → Enter a setup key")
+    s1:SetText(L["CONFIG_TOTP_STEP1"] or "1. Open your authenticator app --> Add account --> Enter a setup key manually (no QR code available.. yet!)")
     addGap(16)
 
     local s2 = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
