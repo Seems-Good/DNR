@@ -9,7 +9,7 @@ if locale ~= "enUS" and locale ~= "enGB" then return end
 
 DoNotReleaseL = DoNotReleaseL or {}
 local L = DoNotReleaseL
-local VERSION = "@project-version@"
+local VERSION = "v1.3.0"
 
 -- ── Warning overlay ───────────────────────────────────────────────────────────
 L["WARNING_TEXT"]               = "PLEASE DO NOT RELEASE"
@@ -43,6 +43,7 @@ L["CONFIG_COLOR_TITLE"]         = "Warning Color"
 L["COLOR_RED"]                  = "Red (default)"
 L["COLOR_ORANGE"]               = "Orange"
 L["COLOR_YELLOW"]               = "Yellow"
+L["COLOR_GREEN"]                = "Green"
 L["COLOR_WHITE"]                = "White"
 L["COLOR_CYAN"]                 = "Cyan"
 
