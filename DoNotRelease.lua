@@ -87,7 +87,7 @@ local COLOR_PRESETS = {
     { key = "COLOR_CYAN",   r = 0.0, g = 1,    b = 1   },
 }
 
-local VERSION = "v1.3.1"
+local VERSION = "v1.3.2"
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 local function PlayerIsInInstance()
@@ -255,14 +255,17 @@ timerCancelBtn:SetText(L["TIMER_CANCEL"] or "Cancel")
 
 local timerRemaining = 0
 local timerTicker = nil
+local timerDismissing = false  -- true when WE are hiding the frame; suppresses OnHide side-effects
 local _dnrSuppressNext = false  -- flag: let the next DEATH popup through unmodified
 
 local function StopReleaseTimerInternal()
+    timerDismissing = true
     if timerTicker then
         timerTicker:Cancel()
         timerTicker = nil
     end
     timerFrame:Hide()
+    timerDismissing = false
 end
 
 local function FinishTimerAndShowNative()
@@ -274,8 +277,18 @@ end
 timerCancelBtn:SetScript("OnClick", FinishTimerAndShowNative)
 
 timerFrame:SetScript("OnHide", function()
-    if timerTicker then
-        FinishTimerAndShowNative()
+    -- Only show the native popup if:
+    --   1. We are not already in the middle of a controlled dismiss, AND
+    --   2. The player still needs to release (not bres'd, not out of combat)
+    if not timerDismissing and timerTicker and UnitIsDeadOrGhost("player") then
+        timerTicker:Cancel()
+        timerTicker = nil
+        _dnrSuppressNext = true
+        StaticPopup_Show("DEATH")
+    elseif timerTicker then
+        -- Battle res or otherwise no longer dead — just clean up
+        timerTicker:Cancel()
+        timerTicker = nil
     end
 end)
 
@@ -351,16 +364,20 @@ tfCancelBtn:SetPoint("BOTTOMRIGHT", tfFrame, "BOTTOMRIGHT", -14, 14)
 tfCancelBtn:SetText(L["TF_CANCEL"] or "Cancel")
 
 local tfCurrentCode = ""
+local tfDismissing = false  -- true when WE are hiding the frame
 
 local function GenerateTwoFactorCode()
     return string.format("%04d", math.random(0, 9999))
 end
 
 local function StopTwoFactorInternal()
+    tfDismissing = true
+    tfCurrentCode = ""
     tfFrame:Hide()
     tfInput:SetText("")
     tfFeedback:SetText("")
     tfInput:ClearFocus()
+    tfDismissing = false
 end
 
 local function FinishTwoFactorAndShowNative()
@@ -385,13 +402,17 @@ tfInput:SetScript("OnEnterPressed", AttemptTwoFactorConfirm)
 tfCancelBtn:SetScript("OnClick", FinishTwoFactorAndShowNative)
 
 tfFrame:SetScript("OnHide", function()
-    if tfCurrentCode ~= "" then
+    -- Only forward to the native popup if externally dismissed while player still needs to release.
+    -- A battle res or leaving combat means UnitIsDeadOrGhost returns false — just clean up silently.
+    if not tfDismissing and tfCurrentCode ~= "" and UnitIsDeadOrGhost("player") then
         tfCurrentCode = ""
         tfInput:SetText("")
         tfFeedback:SetText("")
         tfInput:ClearFocus()
         _dnrSuppressNext = true
         StaticPopup_Show("DEATH")
+    else
+        tfCurrentCode = ""
     end
 end)
 
@@ -467,13 +488,16 @@ totpFrame:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 local totpSessionActive = false
+local totpDismissing = false  -- true when WE are hiding the frame
 
 local function StopTotpInternal()
+    totpDismissing = true
     totpSessionActive = false
     totpFrame:Hide()
     totpInput:SetText("")
     totpFeedback:SetText("")
     totpInput:ClearFocus()
+    totpDismissing = false
 end
 
 local function FinishTotpAndShowNative()
@@ -502,16 +526,17 @@ totpInput:SetScript("OnEnterPressed", AttemptTotpConfirm)
 totpCancelBtn:SetScript("OnClick", FinishTotpAndShowNative)
 
 totpFrame:SetScript("OnHide", function()
-    if totpSessionActive then
-        local wasActive = totpSessionActive
+    -- Only forward to the native popup if externally dismissed while player still needs to release.
+    -- A battle res or leaving combat means UnitIsDeadOrGhost returns false — just clean up silently.
+    if not totpDismissing and totpSessionActive and UnitIsDeadOrGhost("player") then
         totpSessionActive = false
         totpInput:SetText("")
         totpFeedback:SetText("")
         totpInput:ClearFocus()
-        if wasActive then
-            _dnrSuppressNext = true
-            StaticPopup_Show("DEATH")
-        end
+        _dnrSuppressNext = true
+        StaticPopup_Show("DEATH")
+    else
+        totpSessionActive = false
     end
 end)
 
@@ -545,6 +570,9 @@ hooksecurefunc("StaticPopup_Show", function(which)
     if not db then return end
     local guard = db.releaseGuard or "off"
     if guard == "off" then return end
+    -- Safety net: don't intercept if the player is no longer dead (e.g. a battle res
+    -- arrived in the same frame as the popup was queued).
+    if not UnitIsDeadOrGhost("player") then return end
 
     -- Hide the popup Blizzard just showed, then show our overlay.
     StaticPopup_Hide("DEATH")
@@ -565,17 +593,21 @@ end)
 local function HideGuardFrames()
     StopReleaseTimerInternal()
 
+    tfDismissing = true
     tfCurrentCode = ""
     tfInput:SetText("")
     tfFeedback:SetText("")
     tfInput:ClearFocus()
     tfFrame:Hide()
+    tfDismissing = false
 
+    totpDismissing = true
     totpSessionActive = false
     totpInput:SetText("")
     totpFeedback:SetText("")
     totpInput:ClearFocus()
     totpFrame:Hide()
+    totpDismissing = false
 end
 
 -- ── Settings canvas panel ───────────────────────────────────────────────────
