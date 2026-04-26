@@ -83,11 +83,12 @@ local COLOR_PRESETS = {
     { key = "COLOR_RED",    r = 1,   g = 0.1,  b = 0.1 },
     { key = "COLOR_ORANGE", r = 1,   g = 0.55, b = 0.0 },
     { key = "COLOR_YELLOW", r = 1,   g = 1,    b = 0.0 },
+    { key = "COLOR_GREEN",  r = 0.2, g = 1,    b = 0.2 },
     { key = "COLOR_WHITE",  r = 1,   g = 1,    b = 1   },
     { key = "COLOR_CYAN",   r = 0.0, g = 1,    b = 1   },
 }
 
-local VERSION = "v1.3.2"
+local VERSION = "v1.3.3"
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 local function PlayerIsInInstance()
@@ -628,7 +629,7 @@ local function BuildSettingsCanvas()
     scrollFrame:SetPoint("BOTTOMRIGHT", outer, "BOTTOMRIGHT", -26, 0)
 
     local canvas = CreateFrame("Frame", nil, scrollFrame)
-    canvas:SetSize(W - 30, 1100)
+    canvas:SetSize(W - 30, 950)
     scrollFrame:SetScrollChild(canvas)
 
     local function place(widget, xOff, width, height)
@@ -644,7 +645,7 @@ local function BuildSettingsCanvas()
         local fs = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         place(fs, PAD)
         fs:SetText(L[key] or fallback)
-        addGap(26)
+        addGap(22)
     end
 
     local function divider()
@@ -653,7 +654,7 @@ local function BuildSettingsCanvas()
         line:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
         line:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", -PAD, y)
         line:SetHeight(1)
-        addGap(14)
+        addGap(10)
     end
 
     local function fline(text, indent)
@@ -661,7 +662,7 @@ local function BuildSettingsCanvas()
         fs:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD + (indent or 0), y)
         fs:SetTextColor(0.72, 0.72, 0.72, 1)
         fs:SetText(text)
-        addGap(18)
+        addGap(15)
     end
 
     local HALF_W = _floor((W - PAD * 2 - 8) / 2)
@@ -678,7 +679,7 @@ local function BuildSettingsCanvas()
     hideBtn:SetSize(HALF_W, BTN_H)
     hideBtn:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD + HALF_W + 8, y)
     hideBtn:SetText(L["CONFIG_HIDE_WARNING"] or "Hide Warning")
-    addGap(BTN_H + 8)
+    addGap(BTN_H + 6)
 
     local dragBtn = CreateFrame("Button", nil, canvas, "UIPanelButtonTemplate")
     dragBtn:SetSize(HALF_W, BTN_H)
@@ -689,7 +690,7 @@ local function BuildSettingsCanvas()
     resetBtn:SetSize(HALF_W, BTN_H)
     resetBtn:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD + HALF_W + 8, y)
     resetBtn:SetText(L["CONFIG_RESET_POS"] or "Reset Position")
-    addGap(BTN_H + 18)
+    addGap(BTN_H + 12)
     divider()
 
     -- Warning Color
@@ -716,7 +717,7 @@ local function BuildSettingsCanvas()
         end)
     end
 
-    addGap(_ceil(#COLOR_PRESETS / 2) * (BTN_H + 4) + 18)
+    addGap(_ceil(#COLOR_PRESETS / 2) * (BTN_H + 4) + 12)
     divider()
 
     -- Warning Text
@@ -730,7 +731,7 @@ local function BuildSettingsCanvas()
     editBox:SetAutoFocus(false)
     editBox:SetText(DoNotReleaseDB and DoNotReleaseDB.warningText or DB_DEFAULTS.warningText)
     editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    addGap(BTN_H + 6)
+    addGap(BTN_H + 4)
 
     local charCount = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     charCount:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD + 6, y)
@@ -741,7 +742,7 @@ local function BuildSettingsCanvas()
     end
     updateCounter()
     editBox:SetScript("OnTextChanged", function() updateCounter() end)
-    addGap(20)
+    addGap(16)
 
     local setBtn = CreateFrame("Button", nil, canvas, "UIPanelButtonTemplate")
     setBtn:SetSize(HALF_W, BTN_H)
@@ -752,7 +753,7 @@ local function BuildSettingsCanvas()
     resetTextBtn:SetSize(HALF_W, BTN_H)
     resetTextBtn:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD + HALF_W + 8, y)
     resetTextBtn:SetText(L["CONFIG_TEXT_RESET"] or "Reset Text")
-    addGap(BTN_H + 18)
+    addGap(BTN_H + 12)
     divider()
 
     -- Font Size
@@ -787,7 +788,7 @@ local function BuildSettingsCanvas()
         DoNotReleaseDB.fontSize = size
         label:SetFont(DoNotReleaseDB.fontFace or DB_DEFAULTS.fontFace, size, "OUTLINE")
     end)
-    addGap(54)
+    addGap(48)
     divider()
 
     -- Font
@@ -815,7 +816,7 @@ local function BuildSettingsCanvas()
         end)
     end
 
-    addGap(_ceil(#FONT_PRESETS / 2) * (BTN_H + 4) + 16)
+    addGap(_ceil(#FONT_PRESETS / 2) * (BTN_H + 4) + 12)
     divider()
 
     -- Release Guard
@@ -828,7 +829,7 @@ local function BuildSettingsCanvas()
     guardDesc:SetTextColor(0.72, 0.72, 0.72, 1)
     guardDesc:SetText(L["CONFIG_GUARD_DESC"]
         or "Intercept the Release Spirit button with a confirmation dialog or countdown timer.")
-    addGap(32)
+    addGap(24)
 
     local GUARD_MODES = {
         { key = "CONFIG_GUARD_OFF",       mode = "off",  label = "Off" },
@@ -869,7 +870,7 @@ local function BuildSettingsCanvas()
             print(TAG() .. (L["CONFIG_SAVED"] or "Settings saved."))
         end)
     end
-    addGap(2 * (BTN_H + 4) + 18)
+    addGap(2 * (BTN_H + 4) + 12)
     divider()
 
     -- TOTP Authenticator Setup
@@ -882,13 +883,13 @@ local function BuildSettingsCanvas()
     totpDescLabel:SetTextColor(0.72, 0.72, 0.72, 1)
     totpDescLabel:SetText(L["CONFIG_TOTP_DESC"]
         or "Pair with Google Authenticator, Authy, or any app that supports TOTP (RFC 6238). Choose \"Enter setup key manually\" in your app.")
-    addGap(40)
+    addGap(30)
 
     local totpKeyLabel = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     totpKeyLabel:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
     totpKeyLabel:SetTextColor(0.72, 0.72, 0.72, 1)
     totpKeyLabel:SetText(L["CONFIG_TOTP_SECRET_LABEL"] or "Your secret key (keep this private!):")
-    addGap(18)
+    addGap(16)
 
     local totpKeyDisplay = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     totpKeyDisplay:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD + 4, y)
@@ -902,25 +903,25 @@ local function BuildSettingsCanvas()
     totpRevealBtn:SetText(L["CONFIG_TOTP_REVEAL"] or "Reveal")
 
     local secretVisible = false
-    addGap(24)
+    addGap(20)
 
     local s1 = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     s1:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
     s1:SetTextColor(0.72, 0.72, 0.72, 1)
     s1:SetText(L["CONFIG_TOTP_STEP1"] or "1. Open your authenticator app --> Add account --> Enter a setup key manually (no QR code available.. yet!)")
-    addGap(16)
+    addGap(14)
 
     local s2 = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     s2:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
     s2:SetTextColor(0.72, 0.72, 0.72, 1)
     s2:SetText(L["CONFIG_TOTP_STEP2"] or "2. Account: DoNotRelease, Key type: Time-based")
-    addGap(16)
+    addGap(14)
 
     local s3 = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     s3:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
     s3:SetTextColor(0.72, 0.72, 0.72, 1)
     s3:SetText(L["CONFIG_TOTP_STEP3"] or "3. Copy the secret key above into the app, then verify below:")
-    addGap(22)
+    addGap(18)
 
     local totpVerifyInput = CreateFrame("EditBox", "DNRTotpVerifyInput", canvas, "InputBoxTemplate")
     totpVerifyInput:SetSize(100, BTN_H)
@@ -937,13 +938,13 @@ local function BuildSettingsCanvas()
     local totpStatus = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     totpStatus:SetPoint("LEFT", totpVerifyBtn, "RIGHT", 10, 0)
     totpStatus:SetText("")
-    addGap(BTN_H + 14)
+    addGap(BTN_H + 10)
 
     local totpGenBtn = CreateFrame("Button", nil, canvas, "UIPanelButtonTemplate")
     totpGenBtn:SetSize(HALF_W, BTN_H)
     totpGenBtn:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
     totpGenBtn:SetText(L["CONFIG_TOTP_GENERATE"] or "Generate New Secret")
-    addGap(BTN_H + 6)
+    addGap(BTN_H + 4)
 
     local totpWarnFs = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     totpWarnFs:SetPoint("TOPLEFT", canvas, "TOPLEFT", PAD, y)
@@ -952,7 +953,7 @@ local function BuildSettingsCanvas()
     totpWarnFs:SetTextColor(1, 0.55, 0.1, 1)
     totpWarnFs:SetText(L["CONFIG_TOTP_REGEN_WARN"]
         or "(!) Regenerating invalidates any existing authenticator pairing.")
-    addGap(28)
+    addGap(22)
     divider()
 
     -- Footer
